@@ -57,6 +57,6 @@ int NewNode     (expr_t* expr, double data, int param, node_t* left, node_t* rig
 
 int HTMLDumpGenerate    (expr_t* expr);
 int ExprEval            (expr_t* expr, double* ret);
-int ExprPrint           (expr_t* expr, FILE* file);
+int ExprTEX             (expr_t* expr);
 int LoadExpr            (expr_t* expr);
 

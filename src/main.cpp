@@ -4,7 +4,8 @@ int main(int argc, char* argv[]){
 
     expr_t expr = {};
 
-    ExprCtor(&expr);
+    int a = ExprCtor(&expr);
+    printf(RED "%d\n" RESET, a);
 //     node_t* node1 = 0;
 //     node_t* node2 = 0;
 //     node_t* node3 = 0;
@@ -21,10 +22,7 @@ int main(int argc, char* argv[]){
 //     NewNode(&expr, 47, 52, node1, node2, &expr.root);
     LoadExpr(&expr);
     ExprDump(&expr);
-
-    ExprPrint(&expr, stdout);
-    FILE* file = fopen("meow.tex", "w");
-    ExprPrint(&expr, file);
+    ExprTEX(&expr);
 
     double b = 0;
     ExprEval(&expr, &b);

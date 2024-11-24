@@ -8,17 +8,23 @@ const int64_t MAXDOT_BUFF    = 16;
 
 const int64_t MINUS_VIBE     = -52;
 
-static int DoDot            (expr_t* expr);
-static int HTMLGenerateHead (expr_t* expr);
-static int HTMLGenerateBody (expr_t* expr);
+//dump related
+static int      DoDot            (expr_t* expr);
+static int      HTMLGenerateHead (expr_t* expr);
+static int      HTMLGenerateBody (expr_t* expr);
+static int      StartExprDump    (expr_t* expr);
+static int      NodeDump         (expr_t* expr, node_t* node, int depth);
+static int      EndExprDump      (expr_t* expr);
+//dump related
 
-static int StartExprDump    (expr_t* expr);
-static int NodeDump         (expr_t* expr, node_t* node, int depth);
-static int EndExprDump      (expr_t* expr);
+static int      ExprVerify      (expr_t* expr);
+static int      NodeVerify      (expr_t* expr, node_t* node, int depth);
 
 static double   NodeEval        (expr_t* expr, node_t* node);
 static int      NodePrint       (expr_t* expr, node_t* node, int depth, FILE* file);
 static int      GetOp           (int num, char* buff);
+
+static int      LoadNode        (expr_t* expr, node_t* node, int param);
 
 enum param_t{
 
@@ -45,8 +51,10 @@ enum operations_t{
 
 enum errors{
 
-    OK  = 0,
-    ERR = 1
+    OK              = 0,
+    ERR             = 1,
+    RECURSION_ERR   = 2,
+    TYPE_ERR        = 3
 
 };
 
@@ -61,12 +69,54 @@ opName_t opList[] = {
 
 /*==============================================================================*/
 
-int ExprPrint(expr_t* expr, FILE* file){
-    //verify
+static int ExprVerify(expr_t* expr){
+    int err = NodeVerify(expr, expr->root, 0);
+
+    if (err) return err;
+
+    return OK;
+}
+
+static int NodeVerify(expr_t* expr, node_t* node, int depth){
+    if (!node) return OK;
+
+    if (depth > expr->numElem) return RECURSION_ERR;
+
+    if ((node->type == NUM || node->type == VAR) && (node->left || node->right)) return TYPE_ERR;
+
+    if (node->left)  return NodeVerify(expr, node->left,  depth + 1);
+    if (node->right) return NodeVerify(expr, node->right, depth + 1);
+
+    return OK;
+}
+
+/*==============================================================================*/
+
+int ExprTEX(expr_t* expr){
+    if (ExprVerify(expr)) return ERR;
+
+    FILE* file = fopen("./bin/tex/meow.tex", "w");
+
+    fprintf(file, "\\documentclass[a4paper]{article}\n");
+    fprintf(file, "\\begin{document}\n");
+
     fprintf(file, "$");
     NodePrint(expr, expr->root, 0, file);
-    fprintf(file, "$");
+    fprintf(file, "$\n");
 
+    fprintf(file, "\\end{document}\n");
+
+    fclose(file);
+
+    char command[MAXLEN_COMMAND] = {};
+    snprintf(command, MAXLEN_COMMAND, "pdflatex ./bin/tex/meow.tex");
+    system(command);
+
+    snprintf(command, MAXLEN_COMMAND, "rm meow.aux");
+    system(command);
+
+    snprintf(command, MAXLEN_COMMAND, "rm meow.log");
+    system(command);
     return OK;
 }
 
@@ -74,26 +124,41 @@ static int NodePrint(expr_t* expr, node_t* node, int depth, FILE* file){
     if (!node) return OK;
     if (depth >= expr->numElem) return ERR;
 
-    //if (node->type != NUM) fprintf(file, "(");
-    fprintf(file, "(");
+    if (node->type != NUM && expr->root != node) fprintf(file, "(");
 
-    if (node->left)  NodePrint(expr, node->left, depth + 1, file);
 
-    if (node->type == NUM)      fprintf(file, "%0.1lf", node->data);
 
-    else if (node->type == VAR) fprintf(file, "%c", (char)node->data);
 
-    else if (node->type == OP){
-        char buff[MAXDOT_BUFF] = {};
-        GetOp((int)node->data, buff);
-        fprintf(file, "%s", buff);
+    if (node->type == OP && (int)node->data == DIV){
+        fprintf(file, "\\frac");
+
+        fprintf(file, "{");
+        if (node->left)  NodePrint(expr, node->left, depth + 1, file);
+        fprintf(file, "}");
+
+        fprintf(file, "{");
+        if (node->right) NodePrint(expr, node->right, depth + 1, file);
+        fprintf(file, "}");
     }
 
-    if (node->right) NodePrint(expr, node->right, depth + 1, file);
+    else{
 
+        if (node->left)  NodePrint(expr, node->left, depth + 1, file);
 
-    //if (node->type != NUM) fprintf(file, ")");
-    fprintf(file, ")");
+        if (node->type == NUM)      fprintf(file, "%0.1lf", node->data);
+
+        else if (node->type == VAR) fprintf(file, "%c", (char)node->data);
+
+        else if (node->type == OP){
+            char buff[MAXDOT_BUFF] = {};
+            GetOp((int)node->data, buff);
+            fprintf(file, "%s", buff);
+        }
+
+        if (node->right) NodePrint(expr, node->right, depth + 1, file);
+    }
+
+    if (node->type != NUM && expr->root != node) fprintf(file, ")");
 
     return OK;
 }
@@ -150,7 +215,8 @@ int NewNode(expr_t* expr, double data, int param, node_t* left, node_t* right, n
 
 /*==============================================================================*/
 int ExprEval(expr_t* expr, double* ret){
-    //verify
+    if (ExprVerify(expr)) return ERR;
+
     *ret = NodeEval(expr, expr->root);
 
     return OK;
@@ -197,14 +263,15 @@ int ExprCtor(expr_t* expr){
 
     HTMLGenerateHead(expr);
 
-    //verify
+    if (ExprVerify(expr)) return ERR;
+
     return OK;
 }
 
 /*==============================================================================*/
 
 int ExprDtor(expr_t* expr){
-    //verify
+    if (ExprVerify(expr)) return ERR;
 
 
 
@@ -306,7 +373,6 @@ static int EndExprDump(expr_t* expr){
 }
 
 /*==============================================================================*/
-static int LoadNode(expr_t* expr, node_t* node, int param);
 
 int LoadExpr(expr_t* expr){
 
