@@ -13,7 +13,7 @@ static int      DoDot            (expr_t* expr);
 static int      HTMLGenerateHead (expr_t* expr);
 static int      HTMLGenerateBody (expr_t* expr);
 static int      StartExprDump    (expr_t* expr);
-static int      NodeDump         (expr_t* expr, node_t* node, int depth);
+static int      NodeDump         (expr_t* expr, node_t* node, int depth, int param);
 static int      EndExprDump      (expr_t* expr);
 //dump related
 
@@ -24,7 +24,10 @@ static double   NodeEval        (expr_t* expr, node_t* node);
 static int      NodePrint       (expr_t* expr, node_t* node, int depth, FILE* file);
 static int      GetOp           (int num, char* buff);
 
+static int      NewNode         (expr_t* expr, double data, int param, node_t* left, node_t* right, node_t** retNode, node_t* parent);
 static int      LoadNode        (expr_t* expr, node_t* node, int param);
+static int      CopyNode        (expr_t* expr, node_t* node, node_t** retNode);
+static int      NodeDiff        (expr_t* diff, node_t* node, node_t** retNode);
 
 enum param_t{
 
@@ -37,9 +40,11 @@ enum param_t{
     //node types
     NUM     = 50,
     VAR     = 51,
-    OP      = 52
+    OP      = 52,
     //node types
 
+    DETAILED = 20,
+    SIMPLE   = 21
 };
 
 enum operations_t{
@@ -69,10 +74,27 @@ opName_t opList[] = {
 
 /*==============================================================================*/
 
+int NodeDel(expr_t* expr, node_t* node, int param){
+    if (node->left)  NodeDel(expr, node->left,  LEFT);
+    if (node->right) NodeDel(expr, node->right, RIGHT);
+
+    if (param == LEFT)  node->parent->left  = nullptr;
+    if (param == RIGHT) node->parent->right = nullptr;
+    free(node);
+    expr->numElem--;
+
+    return OK;
+}
+
+/*==============================================================================*/
+
 static int ExprVerify(expr_t* expr){
     int err = NodeVerify(expr, expr->root, 0);
 
-    if (err) return err;
+    if (err){
+        MEOW
+        return err;
+    }
 
     return OK;
 }
@@ -90,6 +112,60 @@ static int NodeVerify(expr_t* expr, node_t* node, int depth){
     return OK;
 }
 
+/*==============================================================================*/
+int ExprDiff(expr_t* expr, expr_t* diff){
+    NodeDiff(diff, expr->root, &diff->root);
+
+    return OK;
+}
+
+static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
+    node_t* node_left_mul   = nullptr;
+    node_t* node_right_mul  = nullptr;
+
+    node_t* node_left       = nullptr;
+    node_t* node_right      = nullptr;
+    node_t* node_copy_left  = nullptr;
+    node_t* node_copy_right = nullptr;
+
+    if (node->type == OP){
+        if (node->data == ADD){
+            if (node->left)  NodeDiff(diff, node->left,  &node_left);
+            if (node->right) NodeDiff(diff, node->right, &node_right);
+
+            NewNode(diff, ADD, OP, node_left, node_right, retNode, nullptr);
+
+        }
+        else if (node->data == MUL){
+            if (node->left)  NodeDiff(diff, node->left,  &node_left);
+            if (node->right) NodeDiff(diff, node->right, &node_right);
+
+            if (node->left)  CopyNode(diff, node->left,  &node_copy_left);
+            if (node->right) CopyNode(diff, node->right, &node_copy_right);
+
+            NewNode(diff, MUL, OP, node_left,  node_copy_right, &node_left_mul, nullptr);
+            NewNode(diff, MUL, OP, node_right, node_copy_left,  &node_right_mul, nullptr);
+
+            NewNode(diff, ADD, OP, node_left_mul, node_right_mul, retNode, nullptr);
+        }
+    }
+    if (node->type == VAR)  NewNode(diff, 1, NUM, node_left, node_right, retNode, nullptr);
+    if (node->type == NUM)  NewNode(diff, 0, NUM, node_left, node_right, retNode, nullptr);
+
+    return OK;
+}
+
+static int CopyNode(expr_t* expr, node_t* node, node_t** retNode){
+    node_t* node_left = nullptr;
+    node_t* node_right = nullptr;
+
+    if (node->left)  CopyNode(expr, node->left,  &node_left);
+    if (node->right) CopyNode(expr, node->right, &node_right);
+
+    NewNode(expr, node->data, node->type, node_left, node_right, retNode, nullptr);
+
+    return OK;
+}
 /*==============================================================================*/
 
 int ExprTEX(expr_t* expr){
@@ -179,7 +255,7 @@ static int GetOp(int num, char* buff){
 }
 /*==============================================================================*/
 
-int NewNode(expr_t* expr, double data, int param, node_t* left, node_t* right, node_t** ret){
+int NewNode(expr_t* expr, double data, int param, node_t* left, node_t* right, node_t** ret, node_t* parent){
     node_t* newNode = (node_t*)calloc(1, sizeof(*newNode));
 
     newNode->data = data;
@@ -205,10 +281,11 @@ int NewNode(expr_t* expr, double data, int param, node_t* left, node_t* right, n
         newNode->right  = right;
     }
 
-    if (ret) *ret = newNode;
-
+    if (parent) newNode->parent = parent;
     newNode->id = expr->numElem;
     expr->numElem++;
+
+    if (ret) *ret = newNode;
 
     return OK;
 }
@@ -283,52 +360,79 @@ int ExprDtor(expr_t* expr){
 int ExprDump(expr_t* expr){
 
     StartExprDump(expr);
-    NodeDump(expr, expr->root, 0);
+    NodeDump(expr, expr->root, 0, DETAILED);
     EndExprDump(expr);
-
     DoDot(expr);
     HTMLGenerateBody(expr);
 
     return OK;
 }
 
-static int NodeDump(expr_t* expr, node_t* node, int depth){
+static int NodeDump(expr_t* expr, node_t* node, int depth, int param){
+    printf(BLU "p:%p\n" RESET, node);
     if (!node) return OK;
     if (depth > expr->numElem) return ERR;
 
     char outBuff[MAXDOT_BUFF] = {};
+/*---------SIMPLE---------*/
+    if (param == SIMPLE){
+        if (node->type == NUM){
+            fprintf(expr->files.dot,
+                "\tnode%0.3llu [rankdir=LR; fontname=\"SF Pro\"; shape=Mrecord; style=filled; color=\"#e6f2ff\";label = \" { %0.3llu } | { num: %0.2lf }\"];\n",
+                node->id, node->id, node->data);
+        }
 
-    //node
-    if (node->type == NUM){
-        fprintf(expr->files.dot,
-            "\tnode%0.3llu [rankdir=LR; fontname=\"SF Pro\"; shape=Mrecord; style=filled; color=\"#e6f2ff\";label = \" { %0.3llu } | { num: %0.2lf }\"];\n",
-            node->id, node->id, node->data);
+        else if (node->type == OP){
+            snprintf(outBuff, MAXDOT_BUFF, "%c", (char)node->data);
+
+            fprintf(expr->files.dot,
+                "\tnode%0.3llu [rankdir=LR; fontname=\"SF Pro\"; shape=Mrecord; style=filled; color=\"#fff3e6\";label = \" { %0.3llu } | { oper: %s }\"];\n",
+                node->id, node->id, outBuff);
+        }
+
+        else if (node->type == VAR){
+            fprintf(expr->files.dot,
+                "\tnode%0.3llu [rankdir=LR; fontname=\"SF Pro\"; shape=Mrecord; style=filled; color=\"#e6ffe6\";label = \" { %0.3llu } | { var: %c }\"];\n",
+                node->id, node->id, (char)node->data);
+        }
+
+        else {
+            fprintf(expr->files.dot,
+                "\tnode%0.3llu [rankdir=LR; fontname=\"SF Pro\"; shape=Mrecord; style=filled; color=\"#ffe6fe\";label = \" { %0.3llu } | { unknown %0.0lf }\"];\n",
+                node->id, node->id, node->data);
+        }
     }
+/*---------SIMPLE---------*/
 
-    else if (node->type == OP){
-        snprintf(outBuff, MAXDOT_BUFF, "%c", (char)node->data);
+/*---------DETAILED---------*/
+    else if (param == DETAILED){
+        if (node->type == NUM){
+            fprintf(expr->files.dot,
+                "\tnode%0.3llu [rankdir=LR; fontname=\"SF Pro\"; shape=Mrecord; style=filled; color=\"#e6f2ff\";label = \" {{ %0.3llu } | { p: %p } | { num: %0.2lf } | {left: %p} | {right: %p} | {parent: %p}}\"];\n",
+                node->id, node->id, node, node->data, node->left, node->right, node->parent);
+        }
 
-        fprintf(expr->files.dot,
-            "\tnode%0.3llu [rankdir=LR; fontname=\"SF Pro\"; shape=Mrecord; style=filled; color=\"#fff3e6\";label = \" { %0.3llu } | { oper: %s }\"];\n",
-            node->id, node->id, outBuff);
+        else if (node->type == OP){
+            snprintf(outBuff, MAXDOT_BUFF, "%c", (char)node->data);
+
+            fprintf(expr->files.dot,
+                "\tnode%0.3llu [rankdir=LR; fontname=\"SF Pro\"; shape=Mrecord; style=filled; color=\"#fff3e6\";label = \" {{ %0.3llu } | { p: %p } | { oper: %s } | {left: %p} | {right: %p} | {parent: %p}}\"];\n",
+                node->id, node->id, node, outBuff, node->left, node->right, node->parent);
+        }
+
+        else if (node->type == VAR){
+            fprintf(expr->files.dot,
+                "\tnode%0.3llu [rankdir=LR; fontname=\"SF Pro\"; shape=Mrecord; style=filled; color=\"#e6ffe6\";label = \" {{ %0.3llu } | { p: %p } | { var: %c }| {left: %p} | {right: %p} | {parent: %p}}\"];\n",
+                node->id, node->id, node, (char)node->data, node->left, node->right, node->parent);
+        }
+
+        else {
+            fprintf(expr->files.dot,
+                "\tnode%0.3llu [rankdir=LR; fontname=\"SF Pro\"; shape=Mrecord; style=filled; color=\"#ffe6fe\";label = \" {{ %0.3llu } | { p: %p } | { unknown %0.0lf }| {left: %p} | {right: %p} | {parent: %p}}\"];\n",
+                node->id, node->id, node, node->data, node->left, node->right, node->parent);
+        }
     }
-
-    else if (node->type == VAR){
-        //char* varname = "MEOW_VAR";
-
-        fprintf(expr->files.dot,
-            "\tnode%0.3llu [rankdir=LR; fontname=\"SF Pro\"; shape=Mrecord; style=filled; color=\"#e6ffe6\";label = \" { %0.3llu } | { var: %c }\"];\n",
-            node->id, node->id, (char)node->data);
-    }
-
-    else {
-        //char* varname = "MEOW_VAR";
-
-        fprintf(expr->files.dot,
-            "\tnode%0.3llu [rankdir=LR; fontname=\"SF Pro\"; shape=Mrecord; style=filled; color=\"#ffe6fe\";label = \" { %0.3llu } | { unknown %0.0lf }\"];\n",
-            node->id, node->id, node->data);
-    }
-    //node
+/*---------DETAILED---------*/
 
     //edges
     if (node->left){
@@ -336,7 +440,7 @@ static int NodeDump(expr_t* expr, node_t* node, int depth){
                 "\tnode%0.3llu -> node%0.3llu [ fontname=\"SF Pro\"; weight=1; color=\"#04BF00\"; style=\"bold\"];\n\n",
                 node->id, node->left->id);
 
-        NodeDump(expr, node->left, depth + 1);
+        NodeDump(expr, node->left, depth + 1, param);
     }
 
     if (node->right){
@@ -344,7 +448,7 @@ static int NodeDump(expr_t* expr, node_t* node, int depth){
                 "\tnode%0.3llu -> node%0.3llu [ fontname=\"SF Pro\"; weight=1; color=\"#fd4381\"; style=\"bold\"];\n\n",
                 node->id, node->right->id);
 
-        NodeDump(expr, node->right, depth + 1);
+        NodeDump(expr, node->right, depth + 1, param);
     }
     //edges
 
@@ -387,7 +491,7 @@ int LoadExpr(expr_t* expr){
     expr->numElem = 0;
     LoadNode(expr, expr->root, ROOT);
 
-    ExprDump(expr);
+    //ExprDump(expr);
     return OK;
 }
 
@@ -437,15 +541,15 @@ static int LoadNode(expr_t* expr, node_t* node, int param){
 
     if (bracket == '('){
         if (param == ROOT){
-            NewNode(expr, 0, 0, nullptr, nullptr, &newNode);
+            NewNode(expr, 0, 0, nullptr, nullptr, &newNode, nullptr);
             expr->root = newNode;
         }
         if (param == LEFT){
-            NewNode(expr, 0, 0, nullptr, nullptr, &newNode);
+            NewNode(expr, 0, 0, nullptr, nullptr, &newNode, node);
             node->left = newNode;
         }
         if (param == RIGHT){
-            NewNode(expr, 0, 0, nullptr, nullptr, &newNode);
+            NewNode(expr, 0, 0, nullptr, nullptr, &newNode, node);
             node->right = newNode;
         }
     } else abort();
@@ -454,10 +558,7 @@ static int LoadNode(expr_t* expr, node_t* node, int param){
 
     if (bracket == ')'){
         //read data
-        MEOW
         int type = CheckArg(buffer);
-
-        printf(BLU "%d\n" RESET, type);
 
         if (type == OP)         tempData = GetOpNum(buffer);
         else if (type == VAR)   tempData = GetVarNum(buffer);
