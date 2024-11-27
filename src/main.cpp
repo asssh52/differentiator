@@ -11,16 +11,17 @@ int main(int argc, char* argv[]){
 
     LoadExpr(&expr);
     //NodeDel(&expr, expr.root);
-
-    //ExprDiff(&expr, &diff);
+    ExprDiff(&expr, &diff);
     //ExprDump(&diff);
     //NodeDel(&diff, diff.root->left->left, -1);
-    ExprDump(&expr);
-    // ExprTEX(&expr);
+    ExprDump(&diff);
+    ExprTEX(&diff);
 
     double b = 0;
     //ExprEval(&expr, &b);
-    printf(MAG "%lf\n" RESET, b);
+    //printf(MAG "%lf\n" RESET, b);
+
+    //printf(YEL "%d" RESET, CountVariables(expr.root));
 
     HTMLDumpGenerate(&expr);
 

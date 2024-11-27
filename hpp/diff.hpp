@@ -38,6 +38,7 @@ typedef struct expr_t{
     node_t* root;
 
     uint64_t numElem;
+    uint64_t numId;
     uint64_t numDump;
 
 } expr_t;
@@ -48,6 +49,7 @@ typedef struct opName_t{
 } opName_t;
 
 int NodeDel(expr_t* expr, node_t* node, int param);
+
 
 int ExprCtor    (expr_t* expr);
 int ExprDtor    (expr_t* expr);

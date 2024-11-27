@@ -24,6 +24,10 @@ static double   NodeEval        (expr_t* expr, node_t* node);
 static int      NodePrint       (expr_t* expr, node_t* node, int depth, FILE* file);
 static int      GetOp           (int num, char* buff);
 
+static int      RemoveNeutral   (expr_t* expr, node_t* node, int* retValue);
+static int      EvalConsts      (expr_t* expr, node_t* node, int* retValue);
+static int      CountVariables  (node_t* node);
+static int      CountNodes      (node_t* node);
 static int      NewNode         (expr_t* expr, double data, int param, node_t* left, node_t* right, node_t** retNode, node_t* parent);
 static int      LoadNode        (expr_t* expr, node_t* node, int param);
 static int      CopyNode        (expr_t* expr, node_t* node, node_t** retNode);
@@ -74,6 +78,193 @@ opName_t opList[] = {
 
 /*==============================================================================*/
 
+static int ExprSimplify(expr_t* expr, node_t* node){
+
+    int doContinue = 1;
+    while(doContinue){
+        doContinue = 0;
+        RemoveNeutral(expr, node, &doContinue);
+        ExprDump(expr);
+
+        EvalConsts(expr, expr->root, &doContinue);
+        ExprDump(expr);
+    }
+
+    return OK;
+}
+
+static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
+    node_t temp_parent = {};
+
+    if (node->type != OP) return OK;
+
+    if (node == expr->root){
+
+        if (!*retValue){
+            if (node->left)  RemoveNeutral(expr, node->left,  retValue);
+            if (node->right) RemoveNeutral(expr, node->right, retValue);
+        }
+
+        return OK;
+    }
+
+    node_t* parent = (node == expr->root)? &temp_parent : node->parent;
+    int parent_dir_left = (parent->left == node);
+
+    //printf("type:%d data:%d left:%d\n", node->type == OP, node->data == MUL, node->left && node->left->data == 1);
+    if (node != expr->root && node->type == OP){
+        if (node->data == MUL){
+            // x * 1
+            if (node->left && node->left->data == 1){
+                if (parent_dir_left)  parent->left  = node->right;
+                else                  parent->right = node->right;
+                node->right->parent = parent;
+
+                free(node->left);
+                free(node);
+
+                expr->numElem -= 2;
+                *retValue = 1;
+            }
+            else if (node->right && node->right->data == 1){
+                if (parent_dir_left) parent->left  = node->left;
+                else                 parent->right = node->left;
+                node->left->parent = parent;
+
+                free(node->right);
+                free(node);
+
+                expr->numElem -= 2;
+                *retValue = 1;
+            }
+
+            // x * 0
+            if (node->left && node->left->data == 0){
+                if (parent_dir_left)  parent->left  = node->left;
+                else                  parent->right = node->left;
+                node->left->parent = parent;
+
+                int nodeCount = CountNodes(node->right);
+                printf(RED "%d\n" RESET, nodeCount);
+
+                free(node->right);
+                free(node);
+
+                expr->numElem -= nodeCount + 1;
+                *retValue = 1;
+            }
+            else if (node->right && node->right->data == 0){
+                if (parent_dir_left)  parent->left  = node->right;
+                else                  parent->right = node->right;
+                node->right->parent = parent;
+
+                int nodeCount = CountNodes(node->left);
+
+                free(node->left);
+                free(node);
+
+                expr->numElem -= nodeCount + 1;
+                *retValue = 1;
+            }
+        }
+
+        else if (node->data == ADD){
+            if (node->left && node->left->data == 0){
+                if (parent_dir_left)  parent->left  = node->right;
+                else                  parent->right = node->right;
+                node->right->parent = parent;
+
+                free(node->left);
+                free(node);
+
+                expr->numElem -= 2;
+                *retValue = 1;
+            }
+            else if (node->right && node->right->data == 0){
+                if (parent_dir_left) parent->left  = node->left;
+                else                 parent->right = node->left;
+                node->left->parent = parent;
+
+                free(node->right);
+                free(node);
+
+                expr->numElem -= 2;
+                *retValue = 1;
+            }
+        }
+    }
+
+    if (node == expr->root){
+        expr->root = parent->right;
+    }
+
+    if (!*retValue){
+        if (node->left)  RemoveNeutral(expr, node->left,  retValue);
+        if (node->right) RemoveNeutral(expr, node->right, retValue);
+    }
+
+
+
+    return OK;
+}
+
+static int EvalConsts(expr_t* expr, node_t* node, int* retValue){
+    printf(YEL "c:%lf\n" RESET, CountVariables(node));
+
+    if (CountVariables(node) != 0){
+        if (node->left)  EvalConsts(expr, node->left,  retValue);
+        if (node->right) EvalConsts(expr, node->right, retValue);
+    }
+
+    else{
+        if (node->type == OP){
+            node_t temp_parent = {};
+
+            double  value           = NodeEval(expr, node);
+            node_t* parent          = (node == expr->root)? &temp_parent : node->parent;
+            int     parent_dir_left = (parent->left == node);
+            printf(YEL "%lf\n" RESET, value);
+
+            if (parent_dir_left) NodeDel(expr, node, 0);
+            else                 NodeDel(expr, node, 0);
+
+            node_t* newNode = nullptr;
+            NewNode(expr, value, NUM, nullptr, nullptr, &newNode, parent);
+            if (parent_dir_left) parent->left  = newNode;
+            else                 parent->right = newNode;
+
+            if (parent == &temp_parent){
+                expr->root = newNode;
+                newNode->parent = nullptr;
+            }
+        }
+    }
+
+    return OK;
+}
+
+static int CountVariables(node_t* node){
+    int counter = 0;
+
+    if (node->left)  counter += CountVariables(node->left);
+    if (node->right) counter += CountVariables(node->right);
+
+    if (node->type == VAR) counter += 1;
+
+    return counter;
+}
+
+static int CountNodes(node_t* node){
+    int counter = 0;
+
+    if (node->left)  counter += CountNodes(node->left);
+    if (node->right) counter += CountNodes(node->right);
+
+    counter += 1;
+
+    return counter;
+}
+
 int NodeDel(expr_t* expr, node_t* node, int param){
     if (node->left)  NodeDel(expr, node->left,  LEFT);
     if (node->right) NodeDel(expr, node->right, RIGHT);
@@ -115,6 +306,8 @@ static int NodeVerify(expr_t* expr, node_t* node, int depth){
 /*==============================================================================*/
 int ExprDiff(expr_t* expr, expr_t* diff){
     NodeDiff(diff, expr->root, &diff->root);
+    ExprDump(diff);
+    ExprSimplify(diff, diff->root);
 
     return OK;
 }
@@ -279,11 +472,15 @@ int NewNode(expr_t* expr, double data, int param, node_t* left, node_t* right, n
 
         newNode->left   = left;
         newNode->right  = right;
+
+        if (left)  left->parent  = newNode;
+        if (right) right->parent = newNode;
     }
 
     if (parent) newNode->parent = parent;
-    newNode->id = expr->numElem;
+    newNode->id = expr->numId;
     expr->numElem++;
+    expr->numId++;
 
     if (ret) *ret = newNode;
 
@@ -457,7 +654,7 @@ static int NodeDump(expr_t* expr, node_t* node, int depth, int param){
 
 static int StartExprDump(expr_t* expr){
 
-    if (!expr->files.dot) expr->files.dot = fopen("./bin/dot.dot", "w");
+    expr->files.dot = fopen("./bin/dot.dot", "w");
 
     fprintf(expr->files.dot, "digraph G{\n");
 
