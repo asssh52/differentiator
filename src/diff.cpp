@@ -33,6 +33,7 @@ static int      LoadNode        (expr_t* expr, node_t* node, int param);
 static int      CopyNode        (expr_t* expr, node_t* node, node_t** retNode);
 static int      NodeDiff        (expr_t* diff, node_t* node, node_t** retNode);
 
+
 enum param_t{
 
     //newnode params
@@ -83,11 +84,15 @@ static int ExprSimplify(expr_t* expr, node_t* node){
     int doContinue = 1;
     while(doContinue){
         doContinue = 0;
+
         RemoveNeutral(expr, node, &doContinue);
         ExprDump(expr);
+        FillTex(expr);
+
 
         EvalConsts(expr, expr->root, &doContinue);
         ExprDump(expr);
+        FillTex(expr);
     }
 
     return OK;
@@ -190,6 +195,44 @@ static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
 
                 expr->numElem -= 2;
                 *retValue = 1;
+            }
+        }
+
+        else if (node->data == SUB){
+            if (node->left && node->left->data == 0){
+               //do nothing
+            }
+            else if (node->right && node->right->data == 0){
+                if (parent_dir_left) parent->left  = node->left;
+                else                 parent->right = node->left;
+                node->left->parent = parent;
+
+                free(node->right);
+                free(node);
+
+                expr->numElem -= 2;
+                *retValue = 1;
+            }
+        }
+
+        else if (node->data == DIV){
+            if (node->left && node->left->data == 0){
+               if (parent_dir_left)  parent->left  = node->left;
+                else                  parent->right = node->left;
+                node->left->parent = parent;
+
+                int nodeCount = CountNodes(node->right);
+                printf(RED "%d\n" RESET, nodeCount);
+
+                free(node->right);
+                free(node);
+
+                expr->numElem -= nodeCount + 1;
+                *retValue = 1;
+            }
+
+            else if (node->right && node->right->data == 0){
+                //do nothing
             }
         }
     }
@@ -304,10 +347,19 @@ static int NodeVerify(expr_t* expr, node_t* node, int depth){
 }
 
 /*==============================================================================*/
-int ExprDiff(expr_t* expr, expr_t* diff){
-    NodeDiff(diff, expr->root, &diff->root);
+int ExprDiff(expr_t** expr){
+    expr_t* diff = (expr_t*)calloc(1, sizeof(*diff));
+    diff->files   = (*expr)->files;
+    diff->numDump = (*expr)->numDump;
+
+    NodeDiff(diff, (*expr)->root, &diff->root);
     ExprDump(diff);
     ExprSimplify(diff, diff->root);
+
+    //Expr
+
+    *expr = diff;
+
 
     return OK;
 }
@@ -321,6 +373,11 @@ static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
     node_t* node_copy_left  = nullptr;
     node_t* node_copy_right = nullptr;
 
+    node_t* node_numerator     = nullptr;
+    node_t* node_divisor       = nullptr;
+    node_t* node_copy_divisor1 = nullptr;
+    node_t* node_copy_divisor2 = nullptr;
+
     if (node->type == OP){
         if (node->data == ADD){
             if (node->left)  NodeDiff(diff, node->left,  &node_left);
@@ -329,6 +386,15 @@ static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
             NewNode(diff, ADD, OP, node_left, node_right, retNode, nullptr);
 
         }
+
+        else if (node->data == SUB){
+            if (node->left)  NodeDiff(diff, node->left,  &node_left);
+            if (node->right) NodeDiff(diff, node->right, &node_right);
+
+            NewNode(diff, SUB, OP, node_left, node_right, retNode, nullptr);
+
+        }
+
         else if (node->data == MUL){
             if (node->left)  NodeDiff(diff, node->left,  &node_left);
             if (node->right) NodeDiff(diff, node->right, &node_right);
@@ -340,6 +406,28 @@ static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
             NewNode(diff, MUL, OP, node_right, node_copy_left,  &node_right_mul, nullptr);
 
             NewNode(diff, ADD, OP, node_left_mul, node_right_mul, retNode, nullptr);
+        }
+
+        else if (node->data == DIV){
+            if (node->left)  NodeDiff(diff, node->left,  &node_left);
+            if (node->right) NodeDiff(diff, node->right, &node_right);
+
+            if (node->left)  CopyNode(diff, node->left,  &node_copy_left);
+            if (node->right) CopyNode(diff, node->right, &node_copy_right);
+
+            if (node->right) CopyNode(diff, node->right, &node_copy_divisor1);
+            if (node->right) CopyNode(diff, node->right, &node_copy_divisor2);
+
+            NewNode(diff, MUL, OP, node_left,  node_copy_right, &node_left_mul, nullptr);
+            NewNode(diff, MUL, OP, node_right, node_copy_left,  &node_right_mul, nullptr);
+
+            NewNode(diff, SUB, OP, node_left_mul, node_right_mul, &node_numerator, nullptr);
+
+            NewNode(diff, MUL, OP, node_copy_divisor1, node_copy_divisor2, &node_divisor, nullptr);
+
+            NewNode(diff, DIV, OP, node_numerator, node_divisor, retNode, nullptr);
+
+
         }
     }
     if (node->type == VAR)  NewNode(diff, 1, NUM, node_left, node_right, retNode, nullptr);
@@ -389,11 +477,63 @@ int ExprTEX(expr_t* expr){
     return OK;
 }
 
+int OpenTex(expr_t* expr){
+    FILE* file = fopen("./bin/tex/meow.tex", "w");
+    expr->files.tex = file;
+
+    fprintf(file, "\\documentclass[a4paper]{article}\n");
+    fprintf(file, "\\begin{document}\n");
+
+    return OK;
+}
+
+int StartTex(expr_t* expr){
+    FILE* file = fopen("./bin/tex/meow.tex", "w");
+    expr->files.tex = file;
+
+    fprintf(file, "\\documentclass[a4paper]{article}\n");
+    fprintf(file, "\\begin{document}\n");
+
+    return OK;
+}
+
+int FillTex(expr_t* expr){
+    FILE* file = expr->files.tex;
+    printf(GRN "file pointer:%p\n" RESET, file);
+
+    fprintf(file, "$");
+    NodePrint(expr, expr->root, 0, file);
+    fprintf(file, "$\n\n\n");
+
+    return OK;
+}
+
+int EndTex(expr_t* expr){
+    FILE* file = expr->files.tex;
+
+    fprintf(file, "\\end{document}\n");
+
+    fclose(file);
+
+    char command[MAXLEN_COMMAND] = {};
+    snprintf(command, MAXLEN_COMMAND, "pdflatex ./bin/tex/meow.tex");
+    system(command);
+
+    snprintf(command, MAXLEN_COMMAND, "rm meow.aux");
+    system(command);
+
+    snprintf(command, MAXLEN_COMMAND, "rm meow.log");
+    system(command);
+
+    return OK;
+}
+
+
 static int NodePrint(expr_t* expr, node_t* node, int depth, FILE* file){
     if (!node) return OK;
     if (depth >= expr->numElem) return ERR;
 
-    if (node->type != NUM && expr->root != node) fprintf(file, "(");
+    if (node->type != NUM  && node->type != VAR && expr->root != node) fprintf(file, "(");
 
 
 
@@ -427,7 +567,7 @@ static int NodePrint(expr_t* expr, node_t* node, int depth, FILE* file){
         if (node->right) NodePrint(expr, node->right, depth + 1, file);
     }
 
-    if (node->type != NUM && expr->root != node) fprintf(file, ")");
+    if (node->type != NUM && node->type != VAR && expr->root != node) fprintf(file, ")");
 
     return OK;
 }
@@ -557,7 +697,7 @@ int ExprDtor(expr_t* expr){
 int ExprDump(expr_t* expr){
 
     StartExprDump(expr);
-    NodeDump(expr, expr->root, 0, DETAILED);
+    NodeDump(expr, expr->root, 0, SIMPLE);
     EndExprDump(expr);
     DoDot(expr);
     HTMLGenerateBody(expr);
@@ -688,7 +828,8 @@ int LoadExpr(expr_t* expr){
     expr->numElem = 0;
     LoadNode(expr, expr->root, ROOT);
 
-    //ExprDump(expr);
+    FillTex(expr);
+
     return OK;
 }
 

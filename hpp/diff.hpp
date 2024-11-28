@@ -12,11 +12,13 @@ typedef struct files_t{
     char* htmlName;
     char* dotName;
     char* saveName;
+    char* TexName;
 
     FILE* log;
     FILE* html;
     FILE* dot;
     FILE* save;
+    FILE* tex;
 
 } files_t;
 
@@ -60,5 +62,8 @@ int HTMLDumpGenerate    (expr_t* expr);
 int ExprEval            (expr_t* expr, double* ret);
 int ExprTEX             (expr_t* expr);
 int LoadExpr            (expr_t* expr);
-int ExprDiff            (expr_t* expr, expr_t* diff);
+int ExprDiff            (expr_t** expr);
 
+int StartTex(expr_t* expr);
+int FillTex(expr_t* expr);
+int EndTex(expr_t* expr);

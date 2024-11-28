@@ -3,27 +3,23 @@
 int main(int argc, char* argv[]){
 
     expr_t expr = {};
-    ExprCtor(&expr);
+    expr_t* currentExpr = &expr;
 
-    expr_t diff = {};
-    ExprCtor(&diff);
+    ExprCtor(currentExpr);
+    StartTex(currentExpr);
 
+    LoadExpr(currentExpr);
 
-    LoadExpr(&expr);
-    //NodeDel(&expr, expr.root);
-    ExprDiff(&expr, &diff);
-    //ExprDump(&diff);
-    //NodeDel(&diff, diff.root->left->left, -1);
-    ExprDump(&diff);
-    ExprTEX(&diff);
+    ExprDump(currentExpr);
+
+    ExprDiff(&currentExpr);
+
+    //ExprDiff(&currentExpr);
 
     double b = 0;
-    //ExprEval(&expr, &b);
-    //printf(MAG "%lf\n" RESET, b);
 
-    //printf(YEL "%d" RESET, CountVariables(expr.root));
-
-    HTMLDumpGenerate(&expr);
+    EndTex(currentExpr);
+    HTMLDumpGenerate(currentExpr);
 
     return 0;
 }
