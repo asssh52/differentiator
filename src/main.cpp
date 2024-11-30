@@ -13,7 +13,8 @@ int main(int argc, char* argv[]){
     ExprDump(currentExpr);
 
     ExprDiff(&currentExpr);
-
+    ExprDiff(&currentExpr);
+    ExprDiff(&currentExpr);
     ExprDiff(&currentExpr);
 
     double b = 0;

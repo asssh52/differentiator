@@ -90,15 +90,12 @@ static int ExprSimplify(expr_t* expr, node_t* node){
         doContinue = 0;
 
         RemoveNeutral(expr, expr->root, &doContinue);
-        ExprDump(expr);
-        FillTex(expr);
-
-        printf("docont:%d\n", doContinue);
 
         EvalConsts(expr, expr->root, &doContinue);
-        ExprDump(expr);
-        FillTex(expr);
     }
+
+    ExprDump(expr);
+    FillTex(expr);
 
     return OK;
 }
@@ -146,7 +143,6 @@ static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
                 node->left->parent = parent;
 
                 int nodeCount = CountNodes(node->right);
-                printf(RED "%d\n" RESET, nodeCount);
 
                 free(node->right);
                 free(node);
@@ -313,7 +309,6 @@ static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
 }
 
 static int EvalConsts(expr_t* expr, node_t* node, int* retValue){
-    printf(YEL "c:%lf\n" RESET, CountVariables(node));
 
     if (CountVariables(node) != 0){
         if (node->left)  EvalConsts(expr, node->left,  retValue);
@@ -327,7 +322,6 @@ static int EvalConsts(expr_t* expr, node_t* node, int* retValue){
             double  value           = NodeEval(expr, node);
             node_t* parent          = (node == expr->root)? &temp_parent : node->parent;
             int     parent_dir_left = (parent->left == node);
-            printf(YEL "%lf\n" RESET, value);
 
             if (parent_dir_left) NodeDel(expr, node, 0);
             else                 NodeDel(expr, node, 0);
@@ -414,7 +408,6 @@ int ExprDiff(expr_t** expr){
     diff->numDump = (*expr)->numDump;
 
     NodeDiff(diff, (*expr)->root, &diff->root);
-    ExprDump(diff);
     ExprSimplify(diff, diff->root);
 
     //Expr
@@ -711,11 +704,20 @@ static int NodePrint(expr_t* expr, node_t* node, int depth, FILE* file){
         fprintf(file, "}");
     }
 
+    else if (node->type == OP && (int)node->data == LOG){
+
+        fprintf(file, "\\ln");
+
+        fprintf(file, "{");
+        if (node->right) NodePrint(expr, node->right, depth + 1, file);
+        fprintf(file, "}");
+    }
+
     else{
 
         if (node->left)  NodePrint(expr, node->left, depth + 1, file);
 
-        if (node->type == NUM)      fprintf(file, "%0.1lf", node->data);
+        if (node->type == NUM)      fprintf(file, "%0.0lf", node->data);
 
         else if (node->type == VAR) fprintf(file, "%c", (char)node->data);
 
@@ -869,7 +871,6 @@ int ExprDump(expr_t* expr){
 }
 
 static int NodeDump(expr_t* expr, node_t* node, int depth, int param){
-    printf(BLU "p:%p\n" RESET, node);
     if (!node) return OK;
     if (depth > expr->numElem) return ERR;
 
@@ -997,8 +998,6 @@ int LoadExpr(expr_t* expr){
 }
 
 static int CheckArg(char* buffer){
-    printf(MAG "%s\n" RESET, buffer);
-
     for (int i = 0; i < sizeof(opList) / sizeof(opName_t); i++){
         if (!strcmp(buffer, opList[i].name)){
             return OP;
@@ -1082,8 +1081,6 @@ static int LoadNode(expr_t* expr, node_t* node, int param){
 
         //read data
         int type = CheckArg(buffer);
-
-        printf(BLU "%d\n" RESET, type);
 
         if (type == OP)         tempData = GetOpNum(buffer);
         else if (type == VAR)   tempData = GetVarNum(buffer);
