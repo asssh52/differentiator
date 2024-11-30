@@ -106,8 +106,6 @@ static int ExprSimplify(expr_t* expr, node_t* node){
 static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
     node_t temp_parent = {};
 
-    printf("id:%d type:%d data:%d left:%d\n", node->id, node->type == OP, node->data == MUL, node->left && node->left->data == 1);
-
     if (node->type != OP) return OK;
 
     node_t* parent = (node == expr->root)? &temp_parent : node->parent;
@@ -500,6 +498,7 @@ static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
 
             NewNode(diff, SUB, OP, left_left,  left_right,  &left,  nullptr);
 
+            NewNode(diff, 2, NUM, nullptr, nullptr, &right_right, nullptr);
             NewNode(diff, POW, OP, right_left, right_right, &right, nullptr);
 
             NewNode(diff, DIV, OP, left, right, retNode, nullptr);
@@ -563,8 +562,21 @@ static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
 
                 NewNode(diff, ADD, OP, right_left, right_right, &right, nullptr);
 
+
+
                 NewNode(diff, MUL, OP, left, right, retNode, nullptr);
             }
+        }
+
+        else if(node->data == LOG){
+            NewNode(diff, 1, NUM, nullptr, nullptr, &left_left, nullptr);
+            CopyNode(diff, node->right, &left_right);
+
+            NewNode(diff, DIV, OP, left_left, left_right, &left, nullptr);
+
+            NodeDiff(diff, node->right, &right);
+
+            NewNode(diff, MUL, OP, left, right, retNode, nullptr);
         }
     }
     if (node->type == VAR)  NewNode(diff, 1, NUM, nullptr, nullptr, retNode, nullptr);
