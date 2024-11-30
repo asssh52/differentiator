@@ -49,14 +49,16 @@ enum param_t{
     //node types
 
     DETAILED = 20,
-    SIMPLE   = 21
+    SIMPLE   = 21,
 };
 
 enum operations_t{
     ADD = 43,
     SUB = 45,
     MUL = 42,
-    DIV = 47
+    DIV = 47,
+    POW = 94,
+    LOG = 108
 };
 
 enum errors{
@@ -74,7 +76,9 @@ opName_t opList[] = {
     {"+", ADD},
     {"-", SUB},
     {"*", MUL},
-    {"/", DIV}
+    {"/", DIV},
+    {"^", POW},
+    {"ln", LOG}
 };
 
 /*==============================================================================*/
@@ -85,10 +89,11 @@ static int ExprSimplify(expr_t* expr, node_t* node){
     while(doContinue){
         doContinue = 0;
 
-        RemoveNeutral(expr, node, &doContinue);
+        RemoveNeutral(expr, expr->root, &doContinue);
         ExprDump(expr);
         FillTex(expr);
 
+        printf("docont:%d\n", doContinue);
 
         EvalConsts(expr, expr->root, &doContinue);
         ExprDump(expr);
@@ -101,26 +106,18 @@ static int ExprSimplify(expr_t* expr, node_t* node){
 static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
     node_t temp_parent = {};
 
+    printf("id:%d type:%d data:%d left:%d\n", node->id, node->type == OP, node->data == MUL, node->left && node->left->data == 1);
+
     if (node->type != OP) return OK;
-
-    if (node == expr->root){
-
-        if (!*retValue){
-            if (node->left)  RemoveNeutral(expr, node->left,  retValue);
-            if (node->right) RemoveNeutral(expr, node->right, retValue);
-        }
-
-        return OK;
-    }
 
     node_t* parent = (node == expr->root)? &temp_parent : node->parent;
     int parent_dir_left = (parent->left == node);
 
-    //printf("type:%d data:%d left:%d\n", node->type == OP, node->data == MUL, node->left && node->left->data == 1);
-    if (node != expr->root && node->type == OP){
+
+    if (node->type == OP){
         if (node->data == MUL){
             // x * 1
-            if (node->left && node->left->data == 1){
+            if (node->left->data == 1){
                 if (parent_dir_left)  parent->left  = node->right;
                 else                  parent->right = node->right;
                 node->right->parent = parent;
@@ -131,7 +128,8 @@ static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
                 expr->numElem -= 2;
                 *retValue = 1;
             }
-            else if (node->right && node->right->data == 1){
+            else if (node->right->data == 1){
+                MEOW
                 if (parent_dir_left) parent->left  = node->left;
                 else                 parent->right = node->left;
                 node->left->parent = parent;
@@ -235,10 +233,75 @@ static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
                 //do nothing
             }
         }
+
+        else if(node->data == POW){
+            if (node->left->data == 1){
+                if (parent_dir_left)  parent->left  = node->left;
+                else                  parent->right = node->left;
+                node->left->parent = parent;
+
+                int nodeCount = CountNodes(node->right);
+                printf(RED "%d\n" RESET, nodeCount);
+
+                free(node->right);
+                free(node);
+
+                expr->numElem -= nodeCount + 1;
+                *retValue = 1;
+            }
+
+            else if (node->right->data == 1){
+                if (parent_dir_left) parent->left  = node->left;
+                else                 parent->right = node->left;
+                node->left->parent = parent;
+
+                free(node->right);
+                free(node);
+
+                expr->numElem -= 2;
+                *retValue = 1;
+            }
+
+            else if (node->left->data == 0){
+                if (parent_dir_left)  parent->left  = node->left;
+                else                  parent->right = node->left;
+                node->left->parent = parent;
+
+                int nodeCount = CountNodes(node->right);
+                printf(RED "%d\n" RESET, nodeCount);
+
+                free(node->right);
+                free(node);
+
+                expr->numElem -= nodeCount + 1;
+                *retValue = 1;
+            }
+
+            else if (node->right->data == 0){
+                node_t* newNode = nullptr;
+
+                NewNode(expr, 1, NUM, nullptr, nullptr, &newNode, parent);
+
+                if (parent_dir_left)  parent->left  = newNode;
+                else                  parent->right = newNode;
+                node->right->parent = parent;
+
+                int nodeCount = CountNodes(node->left);
+
+                free(node->right);
+                free(node->left);
+                free(node);
+
+                expr->numElem -= nodeCount + 2;
+                *retValue = 1;
+            }
+
+        }
     }
 
-    if (node == expr->root){
+    if (*retValue == 1 && node == expr->root){
         expr->root = parent->right;
+        parent->right->parent = expr->root;
     }
 
     if (!*retValue){
@@ -365,73 +428,147 @@ int ExprDiff(expr_t** expr){
 }
 
 static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
-    node_t* node_left_mul   = nullptr;
-    node_t* node_right_mul  = nullptr;
+    node_t* left             = nullptr;
 
-    node_t* node_left       = nullptr;
-    node_t* node_right      = nullptr;
-    node_t* node_copy_left  = nullptr;
-    node_t* node_copy_right = nullptr;
+    node_t* left_left        = nullptr;
+    node_t* left_left_left   = nullptr;
+    node_t* left_left_right  = nullptr;
 
-    node_t* node_numerator     = nullptr;
-    node_t* node_divisor       = nullptr;
-    node_t* node_copy_divisor1 = nullptr;
-    node_t* node_copy_divisor2 = nullptr;
+    node_t* left_right       = nullptr;
+    node_t* left_right_left  = nullptr;
+    node_t* left_right_right = nullptr;
+
+    node_t* right            = nullptr;
+
+    node_t* right_left          = nullptr;
+    node_t* right_left_left     = nullptr;
+    node_t* right_left_right    = nullptr;
+
+    node_t* right_right             = nullptr;
+    node_t* right_right_left        = nullptr;
+    node_t* right_right_left_right  = nullptr;
+    node_t* right_right_right       = nullptr;
+
+    node_t* temp                = nullptr;
+
+    node_t* temp_left           = nullptr;
+    node_t* temp_left_left      = nullptr;
+    node_t* temp_left_right     = nullptr;
+    node_t* temp_right          = nullptr;
 
     if (node->type == OP){
         if (node->data == ADD){
-            if (node->left)  NodeDiff(diff, node->left,  &node_left);
-            if (node->right) NodeDiff(diff, node->right, &node_right);
+            if (node->left)  NodeDiff(diff, node->left,  &left);
+            if (node->right) NodeDiff(diff, node->right, &right);
 
-            NewNode(diff, ADD, OP, node_left, node_right, retNode, nullptr);
+            NewNode(diff, ADD, OP, left, right, retNode, nullptr);
 
         }
 
         else if (node->data == SUB){
-            if (node->left)  NodeDiff(diff, node->left,  &node_left);
-            if (node->right) NodeDiff(diff, node->right, &node_right);
+            if (node->left)  NodeDiff(diff, node->left,  &left);
+            if (node->right) NodeDiff(diff, node->right, &right);
 
-            NewNode(diff, SUB, OP, node_left, node_right, retNode, nullptr);
+            NewNode(diff, SUB, OP, left, right, retNode, nullptr);
 
         }
 
         else if (node->data == MUL){
-            if (node->left)  NodeDiff(diff, node->left,  &node_left);
-            if (node->right) NodeDiff(diff, node->right, &node_right);
+            if (node->left)  NodeDiff(diff, node->left,  &left_left);
+            if (node->right) NodeDiff(diff, node->right, &right_right);
 
-            if (node->left)  CopyNode(diff, node->left,  &node_copy_left);
-            if (node->right) CopyNode(diff, node->right, &node_copy_right);
+            if (node->left)  CopyNode(diff, node->left,  &right_left);
+            if (node->right) CopyNode(diff, node->right, &left_right);
 
-            NewNode(diff, MUL, OP, node_left,  node_copy_right, &node_left_mul, nullptr);
-            NewNode(diff, MUL, OP, node_right, node_copy_left,  &node_right_mul, nullptr);
+            NewNode(diff, MUL, OP, left_left,  left_right,   &left, nullptr);
+            NewNode(diff, MUL, OP, right_left, right_right,  &right, nullptr);
 
-            NewNode(diff, ADD, OP, node_left_mul, node_right_mul, retNode, nullptr);
+            NewNode(diff, ADD, OP, left, right, retNode, nullptr);
         }
 
         else if (node->data == DIV){
-            if (node->left)  NodeDiff(diff, node->left,  &node_left);
-            if (node->right) NodeDiff(diff, node->right, &node_right);
+            if (node->left)  NodeDiff(diff, node->left,  &left_left_left);
+            if (node->right) NodeDiff(diff, node->right, &left_right_right);
 
-            if (node->left)  CopyNode(diff, node->left,  &node_copy_left);
-            if (node->right) CopyNode(diff, node->right, &node_copy_right);
+            if (node->left)  CopyNode(diff, node->left,  &left_right_left);
+            if (node->right) CopyNode(diff, node->right, &left_left_right);
 
-            if (node->right) CopyNode(diff, node->right, &node_copy_divisor1);
-            if (node->right) CopyNode(diff, node->right, &node_copy_divisor2);
+            if (node->right) CopyNode(diff, node->right, &right_left);
 
-            NewNode(diff, MUL, OP, node_left,  node_copy_right, &node_left_mul, nullptr);
-            NewNode(diff, MUL, OP, node_right, node_copy_left,  &node_right_mul, nullptr);
+            NewNode(diff, MUL, OP, left_left_left,  left_left_right,   &left_left,  nullptr);
+            NewNode(diff, MUL, OP, left_right_left, left_right_right,  &left_right, nullptr);
 
-            NewNode(diff, SUB, OP, node_left_mul, node_right_mul, &node_numerator, nullptr);
+            NewNode(diff, SUB, OP, left_left,  left_right,  &left,  nullptr);
 
-            NewNode(diff, MUL, OP, node_copy_divisor1, node_copy_divisor2, &node_divisor, nullptr);
+            NewNode(diff, POW, OP, right_left, right_right, &right, nullptr);
 
-            NewNode(diff, DIV, OP, node_numerator, node_divisor, retNode, nullptr);
+            NewNode(diff, DIV, OP, left, right, retNode, nullptr);
 
 
         }
+
+        else if (node->data == POW){
+            int var_left  = CountVariables(node->left);
+            int var_right = CountVariables(node->right);
+
+            if (var_left != 0 && var_right == 0){
+                CopyNode(diff, node->left, &left_left_left);
+                NewNode (diff, node->right->data - 1, NUM, nullptr, nullptr, &left_left_right, nullptr);
+
+                NewNode (diff, POW, OP, left_left_left, left_left_right, &left_left, nullptr);
+                NodeDiff(diff, node->left, &left_right);
+
+                NewNode (diff, MUL,               OP,  left_left, left_right, &left,  nullptr);
+                NewNode (diff, node->right->data, NUM, nullptr,   nullptr,    &right, nullptr);
+
+                NewNode(diff, MUL, OP, left, right, retNode, nullptr);
+            }
+
+            else if (var_left == 0 && var_right != 0){
+                CopyNode(diff, node, &left);
+
+                CopyNode(diff, node->left, &right_left_right);
+                NewNode(diff, LOG, OP, nullptr, right_left_right, &right_left, nullptr);
+
+                NodeDiff(diff, node->right, &right_right);
+
+                NewNode(diff, MUL, OP, right_left, right_right, &right, nullptr);
+
+                NewNode(diff, MUL, OP, left, right, retNode, nullptr);
+            }
+
+            else {
+                CopyNode(diff, node, &left);
+
+                NewNode(diff, 1, NUM, nullptr, nullptr, &temp_left_left, nullptr);
+                CopyNode(diff, node->left, &temp_left_right);
+                // 1/f
+                NewNode(diff, DIV, OP, temp_left_left, temp_left_right, &temp_left, nullptr);
+
+                NodeDiff(diff, node->left, &temp_right);
+                // (1/f)*df
+                NewNode(diff, MUL, OP, temp_left, temp_right, &temp, nullptr);
+
+                CopyNode(diff, node->right, &right_left_right);
+                //(1/f)*df*g
+                NewNode(diff, MUL, OP, temp, right_left_right, &right_left, nullptr);
+
+                CopyNode(diff, node->left, &right_right_left_right);
+                //ln(f)
+                NewNode(diff, LOG, OP, nullptr, right_right_left_right, &right_right_left, nullptr);
+                //dg
+                NodeDiff(diff, node->right, &right_right_right);
+                //ln(f)*dg
+                NewNode(diff, MUL, OP, right_right_left, right_right_right, &right_right, nullptr);
+
+                NewNode(diff, ADD, OP, right_left, right_right, &right, nullptr);
+
+                NewNode(diff, MUL, OP, left, right, retNode, nullptr);
+            }
+        }
     }
-    if (node->type == VAR)  NewNode(diff, 1, NUM, node_left, node_right, retNode, nullptr);
-    if (node->type == NUM)  NewNode(diff, 0, NUM, node_left, node_right, retNode, nullptr);
+    if (node->type == VAR)  NewNode(diff, 1, NUM, nullptr, nullptr, retNode, nullptr);
+    if (node->type == NUM)  NewNode(diff, 0, NUM, nullptr, nullptr, retNode, nullptr);
 
     return OK;
 }
@@ -533,7 +670,7 @@ static int NodePrint(expr_t* expr, node_t* node, int depth, FILE* file){
     if (!node) return OK;
     if (depth >= expr->numElem) return ERR;
 
-    if (node->type != NUM  && node->type != VAR && expr->root != node) fprintf(file, "(");
+    if (node->type != NUM  && node->type != VAR) fprintf(file, "(");
 
 
 
@@ -544,6 +681,18 @@ static int NodePrint(expr_t* expr, node_t* node, int depth, FILE* file){
         fprintf(file, "{");
         if (node->left)  NodePrint(expr, node->left, depth + 1, file);
         fprintf(file, "}");
+
+        fprintf(file, "{");
+        if (node->right) NodePrint(expr, node->right, depth + 1, file);
+        fprintf(file, "}");
+    }
+
+    else if (node->type == OP && (int)node->data == POW){
+        fprintf(file, "{");
+        if (node->left)  NodePrint(expr, node->left, depth + 1, file);
+        fprintf(file, "}");
+
+        fprintf(file, "^");
 
         fprintf(file, "{");
         if (node->right) NodePrint(expr, node->right, depth + 1, file);
@@ -567,7 +716,7 @@ static int NodePrint(expr_t* expr, node_t* node, int depth, FILE* file){
         if (node->right) NodePrint(expr, node->right, depth + 1, file);
     }
 
-    if (node->type != NUM && node->type != VAR && expr->root != node) fprintf(file, ")");
+    if (node->type != NUM && node->type != VAR) fprintf(file, ")");
 
     return OK;
 }
@@ -650,10 +799,12 @@ static double NodeEval(expr_t* expr, node_t* node){
 
     if (node->type == OP){
         switch ((int)node->data){
-            case ADD: return NodeEval(expr, node->left) + NodeEval(expr, node->right);
-            case SUB: return NodeEval(expr, node->left) - NodeEval(expr, node->right);
-            case MUL: return NodeEval(expr, node->left) * NodeEval(expr, node->right);
-            case DIV: return NodeEval(expr, node->left) / NodeEval(expr, node->right);
+            case ADD: return        NodeEval(expr, node->left) + NodeEval(expr, node->right);
+            case SUB: return        NodeEval(expr, node->left) - NodeEval(expr, node->right);
+            case MUL: return        NodeEval(expr, node->left) * NodeEval(expr, node->right);
+            case DIV: return        NodeEval(expr, node->left) / NodeEval(expr, node->right);
+            case POW: return    pow(NodeEval(expr, node->left), NodeEval(expr, node->right));
+            case LOG: return    log(NodeEval(expr, node->right));
 
             default: return ERR;
         }

@@ -14,6 +14,7 @@ int main(int argc, char* argv[]){
 
     ExprDiff(&currentExpr);
 
+
     //ExprDiff(&currentExpr);
 
     double b = 0;
