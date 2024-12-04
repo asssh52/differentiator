@@ -2,7 +2,7 @@
 
 #define MEOW fprintf(stderr, RED "meow\n" RESET);
 
-const int64_t MAX_OP_TEX     = 8;
+const int64_t MAX_OP_TEX     = 16;
 const int64_t MAX_DICT_SIZE  = 160;
 const int64_t MAX_USED_LABELS = 100;
 
@@ -48,6 +48,7 @@ static int      PrintLabels     (expr_t* expr);
 static int      RememberLabel   (expr_t* expr, node_t* node);
 static char*    CreateLabel     (expr_t* expr, node_t* node);
 static char*    GetLabelName    (expr_t* expr, node_t* node);
+
 
 
 enum param_t{
@@ -121,7 +122,7 @@ static int ExprSimplify(expr_t* expr, node_t* node){
     ExprDump(expr);
 
     char line[MAX_MSGLEN] = {};
-    snprintf(line, MAX_MSGLEN, "\\newline \\newline diff n%llu, simplifyed:", expr->diffCount + 1);
+    snprintf(line, MAX_MSGLEN, "\\newline \\newline diff n%llu, simplifyed:", expr->diffCount);
     TexPrintMsg(expr, line);
 
     FillTex(expr, expr->root, DFLT);
@@ -497,8 +498,10 @@ int ExprDiff(expr_t** expr){
 
     NodeDiff(diff, (*expr)->root, &diff->root);
 
+    diff->diffCount += 1;
     char line[MAX_MSGLEN] = {};
-    snprintf(line, MAX_MSGLEN, "\\newline \\newline diff n%llu:", diff->diffCount + 1);
+    snprintf(line, MAX_MSGLEN, "\\newline \\newline diff n%llu:", diff->diffCount);
+
     TexPrintMsg(diff, line);
 
     FillTex(diff, diff->root, DFLT);
@@ -508,7 +511,6 @@ int ExprDiff(expr_t** expr){
     //Expr
 
     *expr = diff;
-
 
     return OK;
 }
@@ -770,7 +772,7 @@ int StartTex(expr_t* expr){
 int FillTex(expr_t* expr, node_t* node, int param){
     FILE* file = expr->files.tex;
     int counter = 0;
-    //ClearUsedLabels(expr);
+    ClearUsedLabels(expr);
 
     DictDump(expr);
     if (param == DFLT || param == 0){
@@ -803,6 +805,9 @@ int FillTex(expr_t* expr, node_t* node, int param){
         fprintf(file, ")'$\n");
     }
 
+    PrintLabels(expr);
+    DictDump(expr);
+
     return OK;
 }
 
@@ -829,10 +834,10 @@ int EndTex(expr_t* expr){
 
 static int NodePrint(expr_t* expr, node_t* node, int depth, int* printCounter, FILE* file){
     if (!node) return OK;
-    printf(BLU "depth:%d, num:%d, counter:%d\n" RESET, depth, expr->numElem, printCounter);
+    //printf(BLU "depth:%d, num:%d, counter:%d\n" RESET, depth, expr->numElem, printCounter);
     if (depth > expr->numElem && expr->numElem != 0) return ERR;
 
-    if (*printCounter >= MAX_OP_TEX){
+    if (*printCounter >= MAX_OP_TEX && CountNodes(node) >= MAX_OP_TEX){
 
         char* name  = GetLabelName(expr, node);
         if (!name)  CreateLabel(expr, node);
@@ -968,7 +973,6 @@ static int ClearUsedLabels(expr_t* expr){
     expr->currentLabel = 0;
 
     return OK;
-
 }
 
 static int PrintLabels(expr_t* expr){
@@ -977,13 +981,13 @@ static int PrintLabels(expr_t* expr){
     for (int i = 0; i < expr->currentLabel; i++){
         counter = 0;
         char line[SUBST_NAME_LEN + 1] = {};
-        snprintf(line, SUBST_NAME_LEN + 1, "%s=", expr->dict[expr->usedLabels[i]].name);
+        snprintf(line, SUBST_NAME_LEN + 1, "\\\\%s=", expr->dict[expr->usedLabels[i]].name);
 
 
         fprintf(expr->files.tex, "$");
         TexPrintMsg(expr, line);
         NodePrint(expr, expr->dict[expr->usedLabels[i]].node, 0, &counter, expr->files.tex);
-        fprintf(expr->files.tex, "$");
+        fprintf(expr->files.tex, "$\n");
     }
 
     return OK;
@@ -1000,7 +1004,7 @@ static char* CreateLabel(expr_t* expr, node_t* node){
     char* line = (char*)calloc(SUBST_NAME_LEN, sizeof(*line));
     snprintf(line, SUBST_NAME_LEN, "%c", 'A' + expr->numDict);
 
-    printf("numDict:%d\n", expr->numDict);
+    printf("numDict:%llu\n", expr->numDict);
 
     expr->dict[expr->numDict].name = line;
     expr->dict[expr->numDict].node = node;
@@ -1014,6 +1018,7 @@ static int DictDump(expr_t* expr){
     printf(YEL "\n===============================\n" RESET);
     printf(YEL "Dictionary Dump:\n" RESET);
 
+    printf("num: %llu\n", expr->numDict);
     if (expr->dict){
         for (int i = 0; i < expr->numDict; i++){
             printf("\033[38;5;206m" "label:'%s'\t id:%p\n", expr->dict[i].name, expr->dict[i].node);
