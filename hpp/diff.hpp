@@ -7,6 +7,9 @@
 #include <math.h>
 #include "colors.hpp"
 
+const int OP_LEN            = 5;
+const int SUBST_NAME_LEN    = 5;
+
 typedef struct files_t{
 
     char* logName;
@@ -35,6 +38,13 @@ typedef struct node_t{
 
 } node_t;
 
+typedef struct nodeDictPair_t{
+
+    node_t* node;
+    char*   name;
+
+} dictPair_t;
+
 typedef struct expr_t{
     files_t files;
 
@@ -43,11 +53,17 @@ typedef struct expr_t{
     uint64_t numElem;
     uint64_t numId;
     uint64_t numDump;
+    uint64_t diffCount;
+
+    dictPair_t* dict;
+    uint64_t    numDict;
+    int         usedLabels[100];
+    int         currentLabel;
 
 } expr_t;
 
 typedef struct opName_t{
-    char    name[5];
+    char    name[OP_LEN];
     int     opNum;
 } opName_t;
 
@@ -66,5 +82,5 @@ int LoadExpr            (expr_t* expr);
 int ExprDiff            (expr_t** expr);
 
 int StartTex(expr_t* expr);
-int FillTex(expr_t* expr);
+int FillTex(expr_t* expr, node_t* node, int param);
 int EndTex(expr_t* expr);

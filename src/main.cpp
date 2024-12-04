@@ -13,14 +13,15 @@ int main(int argc, char* argv[]){
     ExprDump(currentExpr);
 
     ExprDiff(&currentExpr);
-    ExprDiff(&currentExpr);
-    ExprDiff(&currentExpr);
-    ExprDiff(&currentExpr);
+
+
 
     double b = 0;
 
     EndTex(currentExpr);
     HTMLDumpGenerate(currentExpr);
+
+    ExprDtor(currentExpr);
 
     return 0;
 }
