@@ -57,7 +57,7 @@ typedef struct expr_t{
 
     dictPair_t* dict;
     uint64_t    numDict;
-    int         usedLabels[100];
+    int*        usedLabels;
     int         currentLabel;
 
 } expr_t;

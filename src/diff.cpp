@@ -2,9 +2,9 @@
 
 #define MEOW fprintf(stderr, RED "meow\n" RESET);
 
-const int64_t MAX_OP_TEX     = 16;
-const int64_t MAX_DICT_SIZE  = 160;
-const int64_t MAX_USED_LABELS = 100;
+const int64_t MAX_OP_TEX     = 12;
+const int64_t MAX_DICT_SIZE  = 16000;
+const int64_t MAX_USED_LABELS = 10000;
 
 const int64_t MAX_BUFF       = 128;
 const int64_t MAX_MSGLEN     = 128;
@@ -27,7 +27,7 @@ static int      NodeVerify      (expr_t* expr, node_t* node, int depth);
 
 static double   NodeEval        (expr_t* expr, node_t* node);
 static int      NodePrint       (expr_t* expr, node_t* node, int depth, int* printCounter, FILE* file);
-static int      TexPrintMsg     (expr_t* expr, char* line);
+static int      TexPrintMsg     (expr_t* expr, char* line,   int param);
 static int      GetOp           (int num, char* buff);
 
 static int      ExprSimplify    (expr_t* expr, node_t* node);
@@ -74,7 +74,13 @@ enum param_t{
     NO_BR       = 6,
     DFLT        = 7,
     STROKE      = 8,
-    STROKE_NOBR   = 9
+    STROKE_NOBR = 9,
+
+    BR          = 1,
+    NOBR        = 0,
+
+    SKIP_LBLS   = -52,
+    NO_SKIP     = 0,
 };
 
 enum operations_t{
@@ -83,7 +89,10 @@ enum operations_t{
     MUL = 42,
     DIV = 47,
     POW = 94,
-    LOG = 108
+    LOG = 108,
+    SIN = 115,
+    COS = 99,
+    TAN  = 116
 };
 
 enum errors{
@@ -103,7 +112,10 @@ opName_t opList[] = {
     {"*", MUL},
     {"/", DIV},
     {"^", POW},
-    {"ln", LOG}
+    {"ln", LOG},
+    {"sin", SIN},
+    {"cos", COS},
+    {"tan", TAN}
 };
 
 /*==============================================================================*/
@@ -123,7 +135,7 @@ static int ExprSimplify(expr_t* expr, node_t* node){
 
     char line[MAX_MSGLEN] = {};
     snprintf(line, MAX_MSGLEN, "\\newline \\newline diff n%llu, simplifyed:", expr->diffCount);
-    TexPrintMsg(expr, line);
+    TexPrintMsg(expr, line, BR);
 
     FillTex(expr, expr->root, DFLT);
 
@@ -143,13 +155,11 @@ static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
         if (node->data == MUL){
             // x * 1
             if (node->left->data == 1){
-                FillTex(expr, node, PRINT_EQ);
 
                 if (parent_dir_left)  parent->left  = node->right;
                 else                  parent->right = node->right;
                 node->right->parent = parent;
 
-                FillTex(expr, node->right, NO_BR);
 
                 free(node->left);
                 free(node);
@@ -158,13 +168,10 @@ static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
                 *retValue = 1;
             }
             else if (node->right->data == 1){
-                FillTex(expr, node, PRINT_EQ);
 
                 if (parent_dir_left) parent->left  = node->left;
                 else                 parent->right = node->left;
                 node->left->parent = parent;
-
-                FillTex(expr, node->left, NO_BR);
 
                 free(node->right);
                 free(node);
@@ -175,13 +182,11 @@ static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
 
             // x * 0
             if (node->left && node->left->data == 0){
-                FillTex(expr, node, PRINT_EQ);
 
                 if (parent_dir_left)  parent->left  = node->left;
                 else                  parent->right = node->left;
                 node->left->parent = parent;
 
-                FillTex(expr, node->left, NO_BR);
 
                 int nodeCount = CountNodes(node->right);
 
@@ -192,13 +197,11 @@ static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
                 *retValue = 1;
             }
             else if (node->right && node->right->data == 0){
-                FillTex(expr, node, PRINT_EQ);
 
                 if (parent_dir_left)  parent->left  = node->right;
                 else                  parent->right = node->right;
                 node->right->parent = parent;
 
-                FillTex(expr, node->right, NO_BR);
 
                 int nodeCount = CountNodes(node->left);
 
@@ -212,13 +215,10 @@ static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
 
         else if (node->data == ADD){
             if (node->left && node->left->data == 0){
-                FillTex(expr, node, PRINT_EQ);
 
                 if (parent_dir_left)  parent->left  = node->right;
                 else                  parent->right = node->right;
                 node->right->parent = parent;
-
-                FillTex(expr, node->right, NO_BR);
 
                 free(node->left);
                 free(node);
@@ -227,13 +227,11 @@ static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
                 *retValue = 1;
             }
             else if (node->right && node->right->data == 0){
-                FillTex(expr, node, PRINT_EQ);
 
                 if (parent_dir_left) parent->left  = node->left;
                 else                 parent->right = node->left;
                 node->left->parent = parent;
 
-                FillTex(expr, node->left, NO_BR);
 
                 free(node->right);
                 free(node);
@@ -248,13 +246,10 @@ static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
                //do nothing
             }
             else if (node->right && node->right->data == 0){
-                FillTex(expr, node, PRINT_EQ);
 
                 if (parent_dir_left) parent->left  = node->left;
                 else                 parent->right = node->left;
                 node->left->parent = parent;
-
-                FillTex(expr, node->left, NO_BR);
 
                 free(node->right);
                 free(node);
@@ -266,13 +261,10 @@ static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
 
         else if (node->data == DIV){
             if (node->left && node->left->data == 0){
-                FillTex(expr, node, PRINT_EQ);
 
                if (parent_dir_left)  parent->left  = node->left;
                 else                  parent->right = node->left;
                 node->left->parent = parent;
-
-                FillTex(expr, node->left, NO_BR);
 
                 int nodeCount = CountNodes(node->right);
                 printf(RED "%d\n" RESET, nodeCount);
@@ -291,13 +283,11 @@ static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
 
         else if(node->data == POW){
             if (node->left->data == 1){
-                FillTex(expr, node, PRINT_EQ);
 
                 if (parent_dir_left)  parent->left  = node->left;
                 else                  parent->right = node->left;
                 node->left->parent = parent;
 
-                FillTex(expr, node->left, NO_BR);
 
                 int nodeCount = CountNodes(node->right);
                 printf(RED "%d\n" RESET, nodeCount);
@@ -310,13 +300,10 @@ static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
             }
 
             else if (node->right->data == 1){
-                FillTex(expr, node, PRINT_EQ);
 
                 if (parent_dir_left) parent->left  = node->left;
                 else                 parent->right = node->left;
                 node->left->parent = parent;
-
-                FillTex(expr, node->left, NO_BR);
 
                 free(node->right);
                 free(node);
@@ -326,13 +313,10 @@ static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
             }
 
             else if (node->left->data == 0){
-                FillTex(expr, node, PRINT_EQ);
 
                 if (parent_dir_left)  parent->left  = node->left;
                 else                  parent->right = node->left;
                 node->left->parent = parent;
-
-                FillTex(expr, node->left, NO_BR);
 
                 int nodeCount = CountNodes(node->right);
                 printf(RED "%d\n" RESET, nodeCount);
@@ -345,7 +329,6 @@ static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
             }
 
             else if (node->right->data == 0){
-                FillTex(expr, node, PRINT_EQ);
 
                 node_t* newNode = nullptr;
 
@@ -354,8 +337,6 @@ static int RemoveNeutral(expr_t* expr, node_t* node, int* retValue){
                 if (parent_dir_left)  parent->left  = newNode;
                 else                  parent->right = newNode;
                 node->right->parent = parent;
-
-                FillTex(expr, newNode, NO_BR);
 
                 int nodeCount = CountNodes(node->left);
 
@@ -392,7 +373,6 @@ static int EvalConsts(expr_t* expr, node_t* node, int* retValue){
 
     else{
         if (node->type == OP){
-            FillTex(expr, node, PRINT_EQ);
 
             node_t temp_parent = {};
 
@@ -413,7 +393,6 @@ static int EvalConsts(expr_t* expr, node_t* node, int* retValue){
                 newNode->parent = nullptr;
             }
 
-            FillTex(expr, newNode, NO_BR);
         }
     }
 
@@ -502,7 +481,7 @@ int ExprDiff(expr_t** expr){
     char line[MAX_MSGLEN] = {};
     snprintf(line, MAX_MSGLEN, "\\newline \\newline diff n%llu:", diff->diffCount);
 
-    TexPrintMsg(diff, line);
+    TexPrintMsg(diff, line, BR);
 
     FillTex(diff, diff->root, DFLT);
     ExprDump(diff);
@@ -522,9 +501,10 @@ static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
     node_t* left_left_left   = nullptr;
     node_t* left_left_right  = nullptr;
 
-    node_t* left_right       = nullptr;
-    node_t* left_right_left  = nullptr;
-    node_t* left_right_right = nullptr;
+    node_t* left_right              = nullptr;
+    node_t* left_right_left         = nullptr;
+    node_t* left_right_left_right   = nullptr;
+    node_t* left_right_right        = nullptr;
 
     node_t* right            = nullptr;
 
@@ -544,19 +524,17 @@ static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
     node_t* temp_left_right     = nullptr;
     node_t* temp_right          = nullptr;
 
+    int retVal = 0;
 
     if (node->type == OP){
 
         if (node->data == ADD){
-            //FillTex(diff, node, STROKE);
 
             if (node->left)  NodeDiff(diff, node->left,  &left);
             if (node->right) NodeDiff(diff, node->right, &right);
 
             NewNode(diff, ADD, OP, left, right, retNode, nullptr);
 
-            //FillTex(diff, node, STROKE);
-            //FillTex(diff, *retNode, NO_BR);
         }
 
         else if (node->data == SUB){
@@ -569,7 +547,6 @@ static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
         }
 
         else if (node->data == MUL){
-            FillTex(diff, node, STROKE_NOBR);
             //printf(MAG "mul%p\n" RESET, node);
 
             if (node->left)  NodeDiff(diff, node->left,  &left_left);
@@ -583,11 +560,10 @@ static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
 
             NewNode(diff, ADD, OP, left, right, retNode, nullptr);
 
-            FillTex(diff, node, STROKE);
-            FillTex(diff, *retNode, NO_BR);
         }
 
         else if (node->data == DIV){
+
             if (node->left)  NodeDiff(diff, node->left,  &left_left_left);
             if (node->right) NodeDiff(diff, node->right, &left_right_right);
 
@@ -605,15 +581,11 @@ static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
             NewNode(diff, POW, OP, right_left, right_right, &right, nullptr);
 
             NewNode(diff, DIV, OP, left, right, retNode, nullptr);
-
-
         }
 
         else if (node->data == POW){
             int var_left  = CountVariables(node->left);
             int var_right = CountVariables(node->right);
-
-            FillTex(diff, node, STROKE_NOBR);
 
             if (var_left != 0 && var_right == 0){
                 CopyNode(diff, node->left, &left_left_left);
@@ -627,8 +599,6 @@ static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
 
                 NewNode(diff, MUL, OP, left, right, retNode, nullptr);
 
-                FillTex(diff, node, STROKE);
-                FillTex(diff, *retNode, NO_BR);
             }
 
             else if (var_left == 0 && var_right != 0){
@@ -642,6 +612,7 @@ static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
                 NewNode(diff, MUL, OP, right_left, right_right, &right, nullptr);
 
                 NewNode(diff, MUL, OP, left, right, retNode, nullptr);
+
             }
 
             else {
@@ -673,10 +644,12 @@ static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
 
 
                 NewNode(diff, MUL, OP, left, right, retNode, nullptr);
+
             }
         }
 
         else if(node->data == LOG){
+
             NewNode(diff, 1, NUM, nullptr, nullptr, &left_left, nullptr);
             CopyNode(diff, node->right, &left_right);
 
@@ -686,21 +659,54 @@ static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
 
             NewNode(diff, MUL, OP, left, right, retNode, nullptr);
         }
+
+        else if(node->data == SIN){
+            CopyNode(diff, node->right, &right_right);
+
+            NewNode(diff, COS, OP, nullptr, right_right, &right, nullptr);
+
+            NodeDiff(diff, node->right, &left);
+
+            NewNode(diff, MUL, OP, left, right, retNode, nullptr);
+        }
+
+        else if(node->data == COS){
+            CopyNode(diff, node->right, &left_right_right);
+
+            NewNode(diff, SIN, OP, nullptr, left_right_right, &left_right, nullptr);
+
+            NewNode(diff,  -1, NUM,  nullptr,    nullptr, &left_left, nullptr);
+            NewNode(diff, MUL, OP, left_left, left_right, &left, nullptr);
+
+            NodeDiff(diff, node->right, &right);
+
+            NewNode(diff, MUL, OP, left, right, retNode, nullptr);
+        }
+
+        else if(node->data == TAN){
+            CopyNode(diff, node->right, &left_right_left_right);
+            NewNode (diff, COS, OP, nullptr, left_right_left_right, &left_right_left, nullptr);
+
+            NewNode(diff,   2, NUM, nullptr, nullptr, &left_right_right, nullptr);
+            NewNode(diff, POW,  OP,  left_right_left,  left_right_right, &left_right, nullptr);
+
+            NewNode(diff, 1,    NUM,  nullptr,    nullptr,    &left_left, nullptr);
+            NewNode(diff, DIV,  OP,   left_left,  left_right, &left,      nullptr);
+
+            NodeDiff(diff, node->right, &right);
+
+            NewNode(diff, MUL, OP, left, right, retNode, nullptr);
+        }
     }
     if (node->type == VAR){
-        FillTex(diff, node, STROKE);
 
         NewNode(diff, 1, NUM, nullptr, nullptr, retNode, nullptr);
-
-        FillTex(diff, *retNode, NO_BR);
     }
 
     if (node->type == NUM){
-        FillTex(diff, node, STROKE);
 
         NewNode(diff, 0, NUM, nullptr, nullptr, retNode, nullptr);
 
-        FillTex(diff, *retNode, NO_BR);
     }
 
     return OK;
@@ -772,37 +778,14 @@ int StartTex(expr_t* expr){
 int FillTex(expr_t* expr, node_t* node, int param){
     FILE* file = expr->files.tex;
     int counter = 0;
+    int ret_val = 0;
     ClearUsedLabels(expr);
 
     DictDump(expr);
-    if (param == DFLT || param == 0){
-        fprintf(file, "$");
+    if (param){
+        fprintf(file, "\t \\[");
         NodePrint(expr, node, 0, &counter, file);
-        fprintf(file, "$\n");
-    }
-
-    else if (param == NO_BR){
-        fprintf(file, "$");
-        NodePrint(expr, node, 0, &counter, file);
-        fprintf(file, "$\n");
-    }
-
-    else if (param == PRINT_EQ){
-        fprintf(file, "\\\\$");
-        NodePrint(expr, node, 0, &counter, file);
-        fprintf(file, "= $");
-    }
-
-    else if (param == STROKE){
-        fprintf(file, "\\\\$(");
-        NodePrint(expr, node, 0, &counter, file);
-        fprintf(file, ")'=$\n");
-    }
-
-    else if (param == STROKE_NOBR){
-        fprintf(file, "\\\\$(");
-        NodePrint(expr, node, 0, &counter, file);
-        fprintf(file, ")'$\n");
+        fprintf(file, "\\]\n");
     }
 
     PrintLabels(expr);
@@ -846,7 +829,7 @@ static int NodePrint(expr_t* expr, node_t* node, int depth, int* printCounter, F
         RememberLabel(expr, node);
 
         fprintf(file, "%s", name);
-        *printCounter = 0;
+        //*printCounter = 0;
 
         return OK;
     }
@@ -892,6 +875,42 @@ static int NodePrint(expr_t* expr, node_t* node, int depth, int* printCounter, F
     else if (node->type == OP && (int)node->data == LOG){
 
         fprintf(file, "\\ln");
+
+        fprintf(file, "{");
+        if (node->right){
+            *printCounter += 1;
+            NodePrint(expr, node->right, depth + 1, printCounter, file);
+        }
+        fprintf(file, "}");
+    }
+
+    else if (node->type == OP && (int)node->data == SIN){
+
+        fprintf(file, "\\sin");
+
+        fprintf(file, "{");
+        if (node->right){
+            *printCounter += 1;
+            NodePrint(expr, node->right, depth + 1, printCounter, file);
+        }
+        fprintf(file, "}");
+    }
+
+    else if (node->type == OP && (int)node->data == COS){
+
+        fprintf(file, "\\cos");
+
+        fprintf(file, "{");
+        if (node->right){
+            *printCounter += 1;
+            NodePrint(expr, node->right, depth + 1, printCounter, file);
+        }
+        fprintf(file, "}");
+    }
+
+    else if (node->type == OP && (int)node->data == TAN){
+
+        fprintf(file, "\\tan");
 
         fprintf(file, "{");
         if (node->right){
@@ -966,6 +985,8 @@ static int RememberLabel(expr_t* expr, node_t* node){
 }
 
 static int ClearUsedLabels(expr_t* expr){
+    if (!expr->usedLabels) return ERR;
+
     for (int i = 0; i < MAX_USED_LABELS; i++){
         expr->usedLabels[i] = 0;
     }
@@ -981,13 +1002,13 @@ static int PrintLabels(expr_t* expr){
     for (int i = 0; i < expr->currentLabel; i++){
         counter = 0;
         char line[SUBST_NAME_LEN + 1] = {};
-        snprintf(line, SUBST_NAME_LEN + 1, "\\\\%s=", expr->dict[expr->usedLabels[i]].name);
+        snprintf(line, SUBST_NAME_LEN + 1, "%s=", expr->dict[expr->usedLabels[i]].name);
 
 
-        fprintf(expr->files.tex, "$");
-        TexPrintMsg(expr, line);
+        fprintf(expr->files.tex, "\\[");
+        TexPrintMsg(expr, line, NOBR);
         NodePrint(expr, expr->dict[expr->usedLabels[i]].node, 0, &counter, expr->files.tex);
-        fprintf(expr->files.tex, "$\n");
+        fprintf(expr->files.tex, "\\]\n");
     }
 
     return OK;
@@ -1002,7 +1023,8 @@ static char* CreateLabel(expr_t* expr, node_t* node){
     printf("doct:%p\n", expr->dict);
 
     char* line = (char*)calloc(SUBST_NAME_LEN, sizeof(*line));
-    snprintf(line, SUBST_NAME_LEN, "%c", 'A' + expr->numDict);
+    if (expr->numDict >= 26) snprintf(line, SUBST_NAME_LEN, "%c_%llu", (char)('A' + expr->numDict % 26), expr->numDict / 26);
+    else snprintf(line, SUBST_NAME_LEN, "%c", (char)('A' + expr->numDict));
 
     printf("numDict:%llu\n", expr->numDict);
 
@@ -1036,7 +1058,8 @@ static int DictDump(expr_t* expr){
 
 static int DictCtor(expr_t* expr){
 
-    expr->dict = (dictPair_t*)calloc(MAX_DICT_SIZE, sizeof(*(expr->dict)));
+    expr->dict       = (dictPair_t*)calloc(MAX_DICT_SIZE, sizeof(*(expr->dict)));
+    expr->usedLabels = (int*)calloc(MAX_DICT_SIZE, sizeof(*(expr->usedLabels)));
 
     return OK;
 }
@@ -1047,7 +1070,8 @@ static int DictDtor(expr_t* expr){
         free(expr->dict->name);
     }
 
-    if (expr->dict) free(expr->dict);
+    if (expr->dict)         free(expr->dict);
+    if (expr->usedLabels)   free(expr->usedLabels);
 
     return OK;
 }
@@ -1121,6 +1145,9 @@ static double NodeEval(expr_t* expr, node_t* node){
             case DIV: return        NodeEval(expr, node->left) / NodeEval(expr, node->right);
             case POW: return    pow(NodeEval(expr, node->left), NodeEval(expr, node->right));
             case LOG: return    log(NodeEval(expr, node->right));
+            case SIN: return    sin(NodeEval(expr, node->right));
+            case COS: return    cos(NodeEval(expr, node->right));
+            case TAN: return    tan(NodeEval(expr, node->right));
 
             default: return ERR;
         }
@@ -1299,14 +1326,16 @@ int LoadExpr(expr_t* expr){
     expr->numElem = 0;
     LoadNode(expr, expr->root, ROOT);
 
-    TexPrintMsg(expr, "orig:");
+    TexPrintMsg(expr, "orig:", NOBR);
     FillTex(expr, expr->root, DFLT);
 
     return OK;
 }
 
-static int TexPrintMsg(expr_t* expr, char* line){
-    fprintf(expr->files.tex, "%s\n", line);
+static int TexPrintMsg(expr_t* expr, char* line, int param){
+
+    if (param) fprintf(expr->files.tex, "%s\n", line);
+    else fprintf(expr->files.tex, "%s", line);
 
     return OK;
 }

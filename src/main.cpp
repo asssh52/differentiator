@@ -2,8 +2,8 @@
 
 int main(int argc, char* argv[]){
 
-    expr_t expr = {};
-    expr_t* currentExpr = &expr;
+    expr_t* expr = (expr_t*)calloc(1, sizeof(*expr));
+    expr_t* currentExpr = expr;
 
     ExprCtor(currentExpr);
     StartTex(currentExpr);
@@ -15,6 +15,9 @@ int main(int argc, char* argv[]){
     ExprDiff(&currentExpr);
     ExprDiff(&currentExpr);
     ExprDiff(&currentExpr);
+    ExprDiff(&currentExpr);
+
+
 
 
 
