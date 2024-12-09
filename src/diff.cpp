@@ -2,7 +2,7 @@
 
 #define MEOW fprintf(stderr, RED "meow\n" RESET);
 
-const int64_t MAX_OP_TEX     = 12;
+const int64_t MAX_OP_TEX     = 7;
 const int64_t MAX_DICT_SIZE  = 16000;
 const int64_t MAX_USED_LABELS = 10000;
 
@@ -29,6 +29,8 @@ static double   NodeEval        (expr_t* expr, node_t* node);
 static int      NodePrint       (expr_t* expr, node_t* node, int depth, int* printCounter, FILE* file);
 static int      TexPrintMsg     (expr_t* expr, char* line,   int param);
 static int      GetOp           (int num, char* buff);
+
+static int      FillTex         (expr_t* expr, node_t* node, int param);
 
 static int      ExprSimplify    (expr_t* expr, node_t* node);
 static int      RemoveNeutral   (expr_t* expr, node_t* node, int* retValue);
@@ -70,11 +72,12 @@ enum param_t{
     SIMPLE   = 21,
 
     //filltex params
-    PRINT_EQ    = 5,
-    NO_BR       = 6,
-    DFLT        = 7,
-    STROKE      = 8,
-    STROKE_NOBR = 9,
+    DFLT            = 7,
+    STR             = 8,
+    PRNT_STR        = 9,
+    PRNT_LFT        = 10,
+    PRNT_LFT_STR    = 11,
+    PRNT_RGHT       = 12,
 
     BR          = 1,
     NOBR        = 0,
@@ -131,7 +134,7 @@ static int ExprSimplify(expr_t* expr, node_t* node){
         EvalConsts(expr, expr->root, &doContinue);
     }
 
-    ExprDump(expr);
+    //ExprDump(expr);
 
     char line[MAX_MSGLEN] = {};
     snprintf(line, MAX_MSGLEN, "\\newline \\newline diff n%llu, simplifyed:", expr->diffCount);
@@ -373,6 +376,7 @@ static int EvalConsts(expr_t* expr, node_t* node, int* retValue){
 
     else{
         if (node->type == OP){
+            FillTex(expr, node, PRNT_LFT);
 
             node_t temp_parent = {};
 
@@ -393,6 +397,7 @@ static int EvalConsts(expr_t* expr, node_t* node, int* retValue){
                 newNode->parent = nullptr;
             }
 
+            FillTex(expr, newNode, PRNT_RGHT);
         }
     }
 
@@ -484,7 +489,7 @@ int ExprDiff(expr_t** expr){
     TexPrintMsg(diff, line, BR);
 
     FillTex(diff, diff->root, DFLT);
-    ExprDump(diff);
+    //ExprDump(diff);
     ExprSimplify(diff, diff->root);
 
     //Expr
@@ -526,6 +531,8 @@ static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
 
     int retVal = 0;
 
+    FillTex(diff, node, PRNT_STR);
+
     if (node->type == OP){
 
         if (node->data == ADD){
@@ -534,7 +541,6 @@ static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
             if (node->right) NodeDiff(diff, node->right, &right);
 
             NewNode(diff, ADD, OP, left, right, retNode, nullptr);
-
         }
 
         else if (node->data == SUB){
@@ -709,6 +715,9 @@ static int NodeDiff(expr_t* diff, node_t* node, node_t** retNode){
 
     }
 
+    FillTex(diff, node, PRNT_LFT_STR);
+    FillTex(diff, *retNode, PRNT_RGHT);
+
     return OK;
 }
 
@@ -775,20 +784,54 @@ int StartTex(expr_t* expr){
     return OK;
 }
 
-int FillTex(expr_t* expr, node_t* node, int param){
+static int FillTex(expr_t* expr, node_t* node, int param){
     FILE* file = expr->files.tex;
     int counter = 0;
     int ret_val = 0;
-    ClearUsedLabels(expr);
+    if (expr->lastPrntOp != PRNT_LFT_STR && expr->lastPrntOp != PRNT_LFT) ClearUsedLabels(expr);
 
     DictDump(expr);
-    if (param){
+    if (param == DFLT){
         fprintf(file, "\t \\[");
         NodePrint(expr, node, 0, &counter, file);
         fprintf(file, "\\]\n");
+
+        expr->lastPrntOp = DFLT;
     }
 
-    PrintLabels(expr);
+    if (param == PRNT_STR){
+        fprintf(file, "\t \\[");
+        NodePrint(expr, node, 0, &counter, file);
+        fprintf(file, "'\\]\n");
+
+        expr->lastPrntOp = PRNT_STR;
+    }
+
+    else if (param == PRNT_LFT_STR){
+        fprintf(file, "\t \\[ ");
+        NodePrint(expr, node, 0, &counter, file);
+        fprintf(file, "' =");
+
+        expr->lastPrntOp = PRNT_LFT_STR;
+    }
+
+    else if (param == PRNT_LFT){
+        fprintf(file, "\t \\[ ");
+        NodePrint(expr, node, 0, &counter, file);
+        fprintf(file, " =");
+
+        expr->lastPrntOp = PRNT_LFT;
+    }
+
+    else if (param == PRNT_RGHT){
+        fprintf(file, "\t ");
+        NodePrint(expr, node, 0, &counter, file);
+        fprintf(file, " \\] \n");
+
+        expr->lastPrntOp = PRNT_RGHT;
+    }
+
+    if (param != PRNT_LFT && param != PRNT_LFT_STR) PrintLabels(expr);
     DictDump(expr);
 
     return OK;
@@ -817,8 +860,8 @@ int EndTex(expr_t* expr){
 
 static int NodePrint(expr_t* expr, node_t* node, int depth, int* printCounter, FILE* file){
     if (!node) return OK;
-    //printf(BLU "depth:%d, num:%d, counter:%d\n" RESET, depth, expr->numElem, printCounter);
-    if (depth > expr->numElem && expr->numElem != 0) return ERR;
+    printf(BLU "depth:%d, num:%d, counter:%d\n" RESET, depth, expr->numElem, printCounter);
+    if (depth > 3 * expr->numElem && expr->numElem != 0) return ERR;
 
     if (*printCounter >= MAX_OP_TEX && CountNodes(node) >= MAX_OP_TEX){
 
@@ -834,7 +877,7 @@ static int NodePrint(expr_t* expr, node_t* node, int depth, int* printCounter, F
         return OK;
     }
 
-    if (node->type != NUM  && node->type != VAR) fprintf(file, "(");
+    if (node->type != NUM  && node->type != VAR) fprintf(file, "\\left(");
 
     if (node->type == OP && (int)node->data == DIV){
         fprintf(file, "\\frac");
@@ -927,7 +970,7 @@ static int NodePrint(expr_t* expr, node_t* node, int depth, int* printCounter, F
             NodePrint(expr, node->left, depth + 1, printCounter, file);
         }
 
-        if (node->type == NUM)      fprintf(file, "%0.0lf", node->data);
+        if (node->type == NUM)      fprintf(file, "%0.1lf", node->data);
 
         else if (node->type == VAR) fprintf(file, "%c", (char)node->data);
 
@@ -943,7 +986,7 @@ static int NodePrint(expr_t* expr, node_t* node, int depth, int* printCounter, F
         }
     }
 
-    if (node->type != NUM && node->type != VAR) fprintf(file, ")");
+    if (node->type != NUM && node->type != VAR) fprintf(file, "\\right)");
 
     return OK;
 }
@@ -1006,7 +1049,7 @@ static int PrintLabels(expr_t* expr){
 
 
         fprintf(expr->files.tex, "\\[");
-        TexPrintMsg(expr, line, NOBR);
+        TexPrintMsg(expr, line, DFLT);
         NodePrint(expr, expr->dict[expr->usedLabels[i]].node, 0, &counter, expr->files.tex);
         fprintf(expr->files.tex, "\\]\n");
     }
@@ -1023,7 +1066,7 @@ static char* CreateLabel(expr_t* expr, node_t* node){
     printf("doct:%p\n", expr->dict);
 
     char* line = (char*)calloc(SUBST_NAME_LEN, sizeof(*line));
-    if (expr->numDict >= 26) snprintf(line, SUBST_NAME_LEN, "%c_%llu", (char)('A' + expr->numDict % 26), expr->numDict / 26);
+    if (expr->numDict >= 26) snprintf(line, SUBST_NAME_LEN, "%c_{%llu}", (char)('A' + expr->numDict % 26), expr->numDict / 26);
     else snprintf(line, SUBST_NAME_LEN, "%c", (char)('A' + expr->numDict));
 
     printf("numDict:%llu\n", expr->numDict);

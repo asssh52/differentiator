@@ -7,8 +7,8 @@
 #include <math.h>
 #include "colors.hpp"
 
-const int OP_LEN            = 5;
-const int SUBST_NAME_LEN    = 5;
+const int OP_LEN            = 8;
+const int SUBST_NAME_LEN    = 8;
 
 typedef struct files_t{
 
@@ -46,19 +46,21 @@ typedef struct nodeDictPair_t{
 } dictPair_t;
 
 typedef struct expr_t{
-    files_t files;
+    files_t     files;
 
-    node_t* root;
+    node_t*     root;
 
-    uint64_t numElem;
-    uint64_t numId;
-    uint64_t numDump;
-    uint64_t diffCount;
+    uint64_t    numElem;
+    uint64_t    numId;
+    uint64_t    numDump;
+    uint64_t    diffCount;
 
     dictPair_t* dict;
     uint64_t    numDict;
     int*        usedLabels;
     int         currentLabel;
+
+    int         lastPrntOp;
 
 } expr_t;
 
@@ -70,9 +72,9 @@ typedef struct opName_t{
 int NodeDel(expr_t* expr, node_t* node, int param);
 
 
-int ExprCtor    (expr_t* expr);
-int ExprDtor    (expr_t* expr);
-int ExprDump    (expr_t* expr);
+int ExprCtor            (expr_t* expr);
+int ExprDtor            (expr_t* expr);
+int ExprDump            (expr_t* expr);
 
 
 int HTMLDumpGenerate    (expr_t* expr);
@@ -81,6 +83,5 @@ int ExprTEX             (expr_t* expr);
 int LoadExpr            (expr_t* expr);
 int ExprDiff            (expr_t** expr);
 
-int StartTex(expr_t* expr);
-int FillTex(expr_t* expr, node_t* node, int param);
-int EndTex(expr_t* expr);
+int StartTex            (expr_t* expr);
+int EndTex              (expr_t* expr);
